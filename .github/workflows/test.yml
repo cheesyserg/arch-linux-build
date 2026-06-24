@@ -1,0 +1,61 @@
+name: Test Tag Detection Only
+
+on:
+  workflow_dispatch: # Allows you to manually trigger this test from the Actions tab
+
+jobs:
+  test-logic:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+    - name: Checkout Your Repo
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install Minimal Dependencies
+      run: |
+        pacman -Syu --noconfirm
+        pacman -S --noconfirm git curl jq
+
+    - name: Check GitHub API for New Upstream Release
+      id: check-version
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        
+        # Fetch the latest tag name from archlinux/linux
+        LATEST_TAG=$(curl -s https://api.github.com/repos/archlinux/linux/tags | jq -r '.[0].name')
+        echo "Latest upstream tag: $LATEST_TAG"
+        
+        # Read the last built tag stored in your repo
+        touch .last_release
+        LOCAL_TAG=$(cat .last_release)
+        echo "Last built local tag: '$LOCAL_TAG'"
+        
+        if [ "$LATEST_TAG" = "$LOCAL_TAG" ]; then
+          echo "Result: Tags match. No build needed."
+          echo "should_build=false" >> $GITHUB_OUTPUT
+        else
+          echo "Result: Tag mismatch detected! Proceeding with mock build."
+          echo "$LATEST_TAG" > .last_release
+          echo "should_build=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Mock Build Step
+      if: steps.check-version.outputs.should_build == 'true'
+      run: |
+        echo "========================================="
+        echo "SUCCESS: Tag detection trigger verified!"
+        echo "Kernel compilation would have started here."
+        echo "========================================="
+
+    - name: Save Version State back to Repo
+      if: steps.check-version.outputs.should_build == 'true'
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add .last_release
+        git diff-index --quiet HEAD || git commit -m "Test: Update tracked kernel tag"
+        git push
