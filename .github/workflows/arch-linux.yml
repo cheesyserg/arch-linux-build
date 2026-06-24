@@ -1,9 +1,7 @@
 name: Build Custom Arch Kernel Package
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch: # Manual trigger only
 
 jobs:
   build:
@@ -52,7 +50,7 @@ jobs:
         sed -i '/wait "${pid_docs}"/d' PKGBUILD
         sed -i 's/"$pkgbase-docs"//g' PKGBUILD
 
-        # 4. Modify the Arch kernel config file
+        # 4. Modify the Arch kernel config file (config.x86_64)
         sed -i \
           -e 's/CONFIG_BLK_DEV_NVME=./CONFIG_BLK_DEV_NVME=y/' \
           -e 's/CONFIG_BTRFS_FS=./CONFIG_BTRFS_FS=y/' \
@@ -66,7 +64,7 @@ jobs:
           -e 's/CONFIG_ZSTD_DECOMPRESS=./CONFIG_ZSTD_DECOMPRESS=y/' \
           -e 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' \
           -e 's/CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT=y/CONFIG_DEBUG_INFO_NONE=y/' \
-          config
+          config.x86_64
         
         # 5. Update local checksums for the modified config
         updpkgsums
