@@ -3,6 +3,9 @@ name: Build Custom Arch Kernel Package
 on:
   workflow_dispatch: # Manual trigger only
 
+permissions:
+  contents: write # Allows pushing the updated .last_release file back to the repo
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,11 +15,13 @@ jobs:
     steps:
     - name: Checkout Source Code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Fetches full history required to push changes back
 
     - name: Install Build Tools and Dependencies
       run: |
         pacman -Syu --noconfirm
-        pacman -S --noconfirm base-devel devtools pacman-contrib git ccache sudo
+        pacman -S --noconfirm base-devel devtools pacman-contrib git ccache sudo curl jq
         
         # Create non-root user required by makepkg
         useradd -m builder
@@ -83,6 +88,20 @@ jobs:
         echo "=== Step 6: Compile package and resolve dependencies ==="
         makepkg --skippgpcheck --syncdeps --noconfirm
         EOF
+
+    - name: Overwrite Version State and Push to Repo
+      run: |
+        git config --global --add safe.directory '*'
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Fetch current latest upstream tag to overwrite tracking and sync the cron job
+        LATEST_TAG=$(curl -s https://api.github.com/repos/archlinux/linux/tags | jq -r '.[0].name')
+        echo "$LATEST_TAG" > .last_release
+        
+        git add .last_release
+        git diff-index --quiet HEAD || git commit -m "Manual Override: Forced update of tracked kernel tag to $LATEST_TAG"
+        git push
 
     - name: Upload Compiled Packages
       uses: actions/upload-artifact@v4
