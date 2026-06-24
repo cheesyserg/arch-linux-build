@@ -3,6 +3,10 @@ name: Test Tag Detection Only
 on:
   workflow_dispatch: 
 
+# Add this block to grant push access
+permissions:
+  contents: write
+
 jobs:
   test-logic:
     runs-on: ubuntu-latest
