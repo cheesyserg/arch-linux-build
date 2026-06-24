@@ -10,19 +10,17 @@ jobs:
       image: archlinux:latest
 
     steps:
-    # 1. Install Git FIRST so actions/checkout can perform a real git clone
-    name: Bootstrap Git inside Container
+    - name: Bootstrap Git inside Container
       run: |
         pacman -Syu --noconfirm
         pacman -S --noconfirm git curl jq
 
-    # 2. Now checkout will create a proper repository with a .git directory
-    name: Checkout Your Repo
+    - name: Checkout Your Repo
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    name: Check GitHub API for New Upstream Release
+    - name: Check GitHub API for New Upstream Release
       id: check-version
       run: |
         git config --global --add safe.directory '*'
@@ -45,7 +43,7 @@ jobs:
           echo "should_build=true" >> $GITHUB_OUTPUT
         fi
 
-    name: Mock Build Step
+    - name: Mock Build Step
       if: steps.check-version.outputs.should_build == 'true'
       run: |
         echo "========================================="
@@ -53,7 +51,7 @@ jobs:
         echo "Kernel compilation would have started here."
         echo "========================================="
 
-    name: Save Version State back to Repo
+    - name: Save Version State back to Repo
       if: steps.check-version.outputs.should_build == 'true'
       run: |
         git config --global --add safe.directory '*'
