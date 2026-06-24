@@ -45,6 +45,11 @@ jobs:
         pkgctl repo clone --protocol=https linux
         cd linux
         
+        # Save the official version before making any modifications
+        PKGVER=$(grep -E '^pkgver=' PKGBUILD | cut -d= -f2)
+        PKGREL=$(grep -E '^pkgrel=' PKGBUILD | cut -d= -f2)
+        echo "OFFICIAL_VERSION=${PKGVER}-${PKGREL}" >> $GITHUB_ENV
+        
         echo "=== Step 2: Rename the package base name ==="
         sed -i 's/^pkgbase=linux$/pkgbase=linux-btrfs/' PKGBUILD
         echo "  -> Successfully renamed pkgbase in PKGBUILD"
@@ -84,3 +89,10 @@ jobs:
       with:
         name: arch-linux-btrfs-packages
         path: linux/*.pkg.tar.zst
+
+    - name: Log and Display Finished Kernel Version
+      run: |
+        echo "## 🚀 Custom Kernel Build Complete" >> $GITHUB_STEP_SUMMARY
+        echo "The workflow finished building and packaging your optimization modifications successfully." >> $GITHUB_STEP_SUMMARY
+        echo "- **Kernel package flavor:** \`linux-btrfs\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Official Upstream Version:** \`$OFFICIAL_VERSION\`" >> $GITHUB_STEP_SUMMARY
