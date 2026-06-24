@@ -12,15 +12,18 @@ jobs:
       image: archlinux:latest
 
     steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
     - name: Install Build Tools and Dependencies
       run: |
         pacman -Syu --noconfirm
         pacman -S --noconfirm base-devel devtools pacman-contrib git ccache sudo
-
+        
         # Create non-root user required by makepkg
         useradd -m builder
-        echo "builder ALL=(ALL) NOPAsswd: ALL" >> /etc/sudoers
-        chown -R builder:builder /github/workspace
+        echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+        chown -R builder:builder "$GITHUB_WORKSPACE"
 
     - name: Setup Cache for ccache
       uses: actions/cache@v4
@@ -63,7 +66,7 @@ jobs:
           -e 's/CONFIG_ZSTD_DECOMPRESS=./CONFIG_ZSTD_DECOMPRESS=y/' \
           -e 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' \
           -e 's/CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT=y/CONFIG_DEBUG_INFO_NONE=y/' \
-          config.x86_64
+          config
         
         # 5. Update local checksums for the modified config
         updpkgsums
