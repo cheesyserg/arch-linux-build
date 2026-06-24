@@ -1,0 +1,79 @@
+name: Build Custom Arch Kernel Package
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+    - name: Install Build Tools and Dependencies
+      run: |
+        pacman -Syu --noconfirm
+        pacman -S --noconfirm base-devel devtools pacman-contrib git ccache sudo
+
+        # Create non-root user required by makepkg
+        useradd -m builder
+        echo "builder ALL=(ALL) NOPAsswd: ALL" >> /etc/sudoers
+        chown -R builder:builder /github/workspace
+
+    - name: Setup Cache for ccache
+      uses: actions/cache@v4
+      with:
+        path: /home/builder/.cache/ccache
+        key: ${{ runner.os }}-kernel-ccache-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-kernel-ccache-
+
+    - name: Clone, Rename, Configure, and Build Package
+      run: |
+        sudo -u builder bash << 'EOF'
+        export MAKEFLAGS="-j$(nproc)"
+        export MCFLAGS="-j$(nproc)"
+        export CC="ccache gcc"
+        
+        # 1. Clone official linux kernel package repo
+        pkgctl repo clone --protocol=https linux
+        cd linux
+        
+        # 2. Rename the package base name
+        sed -i 's/^pkgbase=linux$/pkgbase=linux-btrfs/' PKGBUILD
+        
+        # 3. Strip out documentation building and packaging
+        sed -i '/make htmldocs/d' PKGBUILD
+        sed -i '/wait "${pid_docs}"/d' PKGBUILD
+        sed -i 's/"$pkgbase-docs"//g' PKGBUILD
+
+        # 4. Modify the Arch kernel config file
+        sed -i \
+          -e 's/CONFIG_BLK_DEV_NVME=./CONFIG_BLK_DEV_NVME=y/' \
+          -e 's/CONFIG_BTRFS_FS=./CONFIG_BTRFS_FS=y/' \
+          -e 's/CONFIG_LIBCRC32C=./CONFIG_LIBCRC32C=y/' \
+          -e 's/CONFIG_CRC32=./CONFIG_CRC32=y/' \
+          -e 's/CONFIG_CRYPTO_SHA256=./CONFIG_CRYPTO_SHA256=y/' \
+          -e 's/CONFIG_CRYPTO_BLAKE2B=./CONFIG_CRYPTO_BLAKE2B=y/' \
+          -e 's/CONFIG_ZLIB_INFLATE=./CONFIG_ZLIB_INFLATE=y/' \
+          -e 's/CONFIG_ZLIB_DEFLATE=./CONFIG_ZLIB_DEFLATE=y/' \
+          -e 's/CONFIG_ZSTD_COMPRESS=./CONFIG_ZSTD_COMPRESS=y/' \
+          -e 's/CONFIG_ZSTD_DECOMPRESS=./CONFIG_ZSTD_DECOMPRESS=y/' \
+          -e 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' \
+          -e 's/CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT=y/CONFIG_DEBUG_INFO_NONE=y/' \
+          config
+        
+        # 5. Update local checksums for the modified config
+        updpkgsums
+        
+        # 6. Compile package and automatically resolve dependencies
+        makepkg --skippgpcheck --syncdeps --noconfirm
+        EOF
+
+    - name: Upload Compiled Packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: arch-linux-btrfs-packages
+        path: linux/*.pkg.tar.zst
