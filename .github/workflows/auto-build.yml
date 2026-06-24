@@ -6,7 +6,7 @@ on:
   workflow_dispatch:     # Allows manual trigger anytime
 
 permissions:
-  contents: write       # Grants permission to save the version state file
+  contents: write       # Grants permission to save the version state file and create releases
 
 jobs:
   check-version:
@@ -30,7 +30,6 @@ jobs:
         LOCAL_TAG=$(cat .last_release)
         echo "Last built local tag: '$LOCAL_TAG'"
         
-        # FIXED: Removed the schedule check. If tags match, it always skips.
         if [ "$LATEST_TAG" = "$LOCAL_TAG" ]; then
           echo "Result: Upstream matches local. Skipping build."
           echo "should_build=false" >> $GITHUB_OUTPUT
@@ -48,10 +47,10 @@ jobs:
       image: archlinux:latest
 
     steps:
-    - name: Bootstrap Git inside Container
+    - name: Bootstrap Git and CLI inside Container
       run: |
         pacman -Syu --noconfirm
-        pacman -S --noconfirm git base-devel devtools pacman-contrib ccache sudo
+        pacman -S --noconfirm git base-devel devtools pacman-contrib ccache sudo github-cli
 
     - name: Checkout Source Code
       uses: actions/checkout@v4
@@ -119,11 +118,18 @@ jobs:
         git diff-index --quiet HEAD || git commit -m "Automated: Update tracked kernel tag to ${{ needs.check-version.outputs.latest_tag }}"
         git push
 
-    - name: Upload Compiled Packages
-      uses: actions/upload-artifact@v4
-      with:
-        name: arch-linux-btrfs-packages
-        path: linux/*.pkg.tar.zst
+    - name: Create GitHub Release and Upload Packages
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config --global --add safe.directory '*'
+        TAG_NAME="${{ needs.check-version.outputs.latest_tag }}"
+        
+        # Generates a release. --clobber overwrites assets cleanly if you re-run manually.
+        gh release create "$TAG_NAME" linux/*.pkg.tar.zst \
+          --title "Kernel Release $TAG_NAME" \
+          --notes "Automated optimized custom build of the Arch Linux kernel package flavor \`linux-btrfs\`." \
+          --clobber
 
     - name: Log and Display Finished Kernel Version
       run: |
