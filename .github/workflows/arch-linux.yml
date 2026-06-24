@@ -34,23 +34,28 @@ jobs:
     - name: Clone, Rename, Configure, and Build Package
       run: |
         sudo -u builder bash << 'EOF'
+        set -ex
+        
+        echo "=== Setting Environment Variables ==="
         export MAKEFLAGS="-j$(nproc)"
         export MCFLAGS="-j$(nproc)"
         export CC="ccache gcc"
         
-        # 1. Clone official linux kernel package repo
+        echo "=== Step 1: Clone official linux kernel package repo ==="
         pkgctl repo clone --protocol=https linux
         cd linux
         
-        # 2. Rename the package base name
+        echo "=== Step 2: Rename the package base name ==="
         sed -i 's/^pkgbase=linux$/pkgbase=linux-btrfs/' PKGBUILD
+        echo "  -> Successfully renamed pkgbase in PKGBUILD"
         
-        # 3. Strip out documentation building and packaging
+        echo "=== Step 3: Strip out documentation building and packaging ==="
         sed -i '/make htmldocs/d' PKGBUILD
         sed -i '/wait "${pid_docs}"/d' PKGBUILD
         sed -i 's/"$pkgbase-docs"//g' PKGBUILD
+        echo "  -> Successfully stripped documentation build steps"
 
-        # 4. Modify the Arch kernel config file (config.x86_64)
+        echo "=== Step 4: Modify the Arch kernel config file (config.x86_64) ==="
         sed -i \
           -e 's/CONFIG_BLK_DEV_NVME=./CONFIG_BLK_DEV_NVME=y/' \
           -e 's/CONFIG_BTRFS_FS=./CONFIG_BTRFS_FS=y/' \
@@ -65,11 +70,12 @@ jobs:
           -e 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' \
           -e 's/CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT=y/CONFIG_DEBUG_INFO_NONE=y/' \
           config.x86_64
+        echo "  -> Successfully modified config.x86_64"
         
-        # 5. Update local checksums for the modified config
+        echo "=== Step 5: Update local checksums for the modified config ==="
         updpkgsums
         
-        # 6. Compile package and automatically resolve dependencies
+        echo "=== Step 6: Compile package and resolve dependencies ==="
         makepkg --skippgpcheck --syncdeps --noconfirm
         EOF
 
