@@ -1,7 +1,7 @@
 name: Test Tag Detection Only
 
 on:
-  workflow_dispatch: # Allows you to manually trigger this test from the Actions tab
+  workflow_dispatch: 
 
 jobs:
   test-logic:
@@ -23,7 +23,7 @@ jobs:
     - name: Check GitHub API for New Upstream Release
       id: check-version
       run: |
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        git config --global --add safe.directory '*'
         
         # Fetch the latest tag name from archlinux/linux
         LATEST_TAG=$(curl -s https://api.github.com/repos/archlinux/linux/tags | jq -r '.[0].name')
@@ -54,6 +54,7 @@ jobs:
     - name: Save Version State back to Repo
       if: steps.check-version.outputs.should_build == 'true'
       run: |
+        git config --global --add safe.directory '*'
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add .last_release
