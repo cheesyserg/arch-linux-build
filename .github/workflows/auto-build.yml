@@ -30,11 +30,12 @@ jobs:
         LOCAL_TAG=$(cat .last_release)
         echo "Last built local tag: '$LOCAL_TAG'"
         
-        if [ "$LATEST_TAG" = "$LOCAL_TAG" ] && [ "${{ github.event_name }}" = "schedule" ]; then
+        # FIXED: Removed the schedule check. If tags match, it always skips.
+        if [ "$LATEST_TAG" = "$LOCAL_TAG" ]; then
           echo "Result: Upstream matches local. Skipping build."
           echo "should_build=false" >> $GITHUB_OUTPUT
         else
-          echo "Result: New release detected or manually forced! Proceeding..."
+          echo "Result: New release detected! Proceeding..."
           echo "should_build=true" >> $GITHUB_OUTPUT
           echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
         fi
