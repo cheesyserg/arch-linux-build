@@ -71,7 +71,6 @@ jobs:
             set -ex
             mkdir -p linux
             
-            # Use echo instead of touch so files aren'\''t 0 bytes (fixes HTTP 400)
             echo "mock kernel binary data" > linux/linux-btrfs-test.pkg.tar.zst
             echo "mock kernel headers data" > linux/linux-btrfs-headers-test.pkg.tar.zst
             
@@ -79,6 +78,11 @@ jobs:
             echo "pkgrel=1" >> linux/PKGBUILD
         EOF
           '
+
+    - name: Restore Workspace Ownership
+      run: |
+        # Reclaim ownership from the container builder user
+        sudo chown -R $USER:$USER .
 
     - name: Upload Compiled Packages as Workflow Artifacts
       uses: actions/upload-artifact@v4
