@@ -19,6 +19,9 @@ jobs:
       run: |
         pacman -Syu --noconfirm
         pacman -S --noconfirm git base-devel devtools pacman-contrib ccache sudo github-cli jq curl
+        
+        # Clean the package cache to maximize disk space
+        pacman -Scc --noconfirm
 
     - name: Checkout Source Code
       uses: actions/checkout@v4
