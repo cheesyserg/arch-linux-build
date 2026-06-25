@@ -43,21 +43,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Free Disk Space (Strip Ubuntu Host Bloat)
-      run: |
-        echo "=== Disk Space Before Cleanup ==="
-        df -h
-        
-        # Remove massive pre-installed tools, language runtimes, and SDKs
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /opt/ghc
-        sudo rm -rf /usr/local/share/boost
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-        
-        echo "=== Disk Space After Cleanup ==="
-        df -h
-
     - name: Checkout Source Code
       uses: actions/checkout@v4
       with:
