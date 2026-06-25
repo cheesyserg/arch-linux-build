@@ -97,7 +97,9 @@ jobs:
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         echo "${{ needs.check-version.outputs.latest_tag }}" > .last_release
         git add .last_release
-        git diff-index --quiet HEAD || git commit -m "Automated TEST: Update tracked kernel tag to ${{ needs.check-version.outputs.latest_tag }}"
+        
+        # Strictly check staged changes to prevent empty commit errors
+        git diff --cached --quiet || git commit -m "Update tracked kernel tag to ${{ needs.check-version.outputs.latest_tag }}"
         git push
 
     - name: Create GitHub Release and Upload Packages
