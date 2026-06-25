@@ -60,7 +60,6 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         LATEST_TAG: ${{ needs.check-version.outputs.latest_tag }}
-        GITHUB_STEP_SUMMARY: ${{ github.step_summary }}
       run: |
         # Ensure host cache directories exist and are writable by the container user
         mkdir -p ${{ github.workspace }}/.ccache
@@ -69,11 +68,7 @@ jobs:
         docker run --rm \
           -v ${{ github.workspace }}/.ccache:/home/builder/.cache/ccache \
           -v ${{ github.workspace }}:/workspace \
-          -v $GITHUB_STEP_SUMMARY:$GITHUB_STEP_SUMMARY \
           -w /workspace \
-          -e GH_TOKEN=$GH_TOKEN \
-          -e LATEST_TAG=$LATEST_TAG \
-          -e GITHUB_STEP_SUMMARY=$GITHUB_STEP_SUMMARY \
           archlinux:latest bash -c '
             set -ex
             
@@ -123,29 +118,51 @@ jobs:
             updpkgsums
             makepkg --skippgpcheck --syncdeps --noconfirm
         EOF
-            
-            echo "=== Step 4: Save Version State back to Repo ==="
-            git config --global --add safe.directory "*"
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "github-actions[bot]@users.noreply.github.com"
-            echo "$LATEST_TAG" > .last_release
-            git add .last_release
-            git diff-index --quiet HEAD || git commit -m "Automated: Update tracked kernel tag to $LATEST_TAG"
-            git push
-            
-            echo "=== Step 5: Create GitHub Release and Upload Packages ==="
-            gh release create "$LATEST_TAG" linux/*.pkg.tar.zst \
-              --title "Kernel Release $LATEST_TAG" \
-              --notes "Automated optimized custom build of the Arch Linux kernel package flavor \`linux-btrfs\`." \
-              --clobber
-
-            echo "=== Step 6: Log Summary ==="
-            PKGVER=$(grep -E "^pkgver=" linux/PKGBUILD | cut -d= -f2)
-            PKGREL=$(grep -E "^pkgrel=" linux/PKGBUILD | cut -d= -f2)
-            OFFICIAL_VERSION="${PKGVER}-${PKGREL}"
-
-            echo "## 🚀 Custom Kernel Build Complete" >> $GITHUB_STEP_SUMMARY
-            echo "The workflow finished building and packaging your optimization modifications successfully." >> $GITHUB_STEP_SUMMARY
-            echo "- **Kernel package flavor:** \`linux-btrfs\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Official Upstream Version:** \`$OFFICIAL_VERSION\`" >> $GITHUB_STEP_SUMMARY
           '
+
+    - name: Restore Workspace Ownership
+      run: |
+        # Reclaim ownership from the container builder user
+        sudo chown -R $USER:$USER .
+
+    - name: Upload Compiled Packages as Workflow Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: arch-linux-btrfs-packages
+        path: linux/*.pkg.tar.zst
+        if-no-files-found: error
+
+    - name: Save Version State back to Repo
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        echo "${{ needs.check-version.outputs.latest_tag }}" > .last_release
+        git add .last_release
+        
+        # Fixed: strictly check staged changes to prevent empty commit errors on rerun
+        git diff --cached --quiet || git commit -m "Automated: Update tracked kernel tag to ${{ needs.check-version.outputs.latest_tag }}"
+        git push
+
+    - name: Create GitHub Release and Upload Packages
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG_NAME: ${{ needs.check-version.outputs.latest_tag }}
+      run: |
+        echo "=== Create Base Release Entry ==="
+        gh release create "$TAG_NAME" \
+          --title "Kernel Release $TAG_NAME" \
+          --notes "Automated optimized custom build of the Arch Linux kernel package flavor \`linux-btrfs\`." || true
+        
+        echo "=== Upload Assets to Release ==="
+        gh release upload "$TAG_NAME" linux/*.pkg.tar.zst --clobber
+
+    - name: Log Summary
+      run: |
+        PKGVER=$(grep -E "^pkgver=" linux/PKGBUILD | cut -d= -f2)
+        PKGREL=$(grep -E "^pkgrel=" linux/PKGBUILD | cut -d= -f2)
+        OFFICIAL_VERSION="${PKGVER}-${PKGREL}"
+
+        echo "## 🚀 Custom Kernel Build Complete" >> $GITHUB_STEP_SUMMARY
+        echo "The workflow finished building and packaging your optimization modifications successfully." >> $GITHUB_STEP_SUMMARY
+        echo "- **Kernel package flavor:** \`linux-btrfs\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Official Upstream Version:** \`$OFFICIAL_VERSION\`" >> $GITHUB_STEP_SUMMARY
