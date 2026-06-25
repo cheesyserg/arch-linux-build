@@ -1,7 +1,7 @@
 name: TEST - Custom Kernel Build
 
 on:
-  workflow_dispatch: # Manual trigger only for quick testing
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,7 +19,6 @@ jobs:
     - name: Check GitHub API (FORCED TRUE FOR TEST)
       id: check
       run: |
-        # Get a real tag so the release step has a valid name, but force should_build=true
         LATEST_TAG=$(curl -s https://api.github.com/repos/archlinux/linux/tags | jq -r '.[0].name')
         echo "Latest upstream tag: $LATEST_TAG"
         echo "should_build=true" >> $GITHUB_OUTPUT
@@ -45,10 +44,6 @@ jobs:
           ${{ runner.os }}-kernel-ccache-
 
     - name: Run Mock Build inside Arch Container
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        LATEST_TAG: ${{ needs.check-version.outputs.latest_tag }}
-        GITHUB_STEP_SUMMARY: ${{ github.step_summary }}
       run: |
         mkdir -p ${{ github.workspace }}/.ccache
         chmod -R 777 ${{ github.workspace }}/.ccache
@@ -56,17 +51,13 @@ jobs:
         docker run --rm \
           -v ${{ github.workspace }}/.ccache:/home/builder/.cache/ccache \
           -v ${{ github.workspace }}:/workspace \
-          -v $GITHUB_STEP_SUMMARY:$GITHUB_STEP_SUMMARY \
           -w /workspace \
-          -e GH_TOKEN=$GH_TOKEN \
-          -e LATEST_TAG=$LATEST_TAG \
-          -e GITHUB_STEP_SUMMARY=$GITHUB_STEP_SUMMARY \
           archlinux:latest bash -c '
             set -ex
             
             echo "=== Step 1: Bootstrap Dependencies ==="
             pacman -Syu --noconfirm
-            pacman -S --noconfirm git base-devel devtools pacman-contrib ccache sudo github-cli
+            pacman -S --noconfirm git base-devel devtools pacman-contrib ccache sudo
             pacman -Scc --noconfirm
             
             echo "=== Step 2: Configure Build User ==="
@@ -75,41 +66,54 @@ jobs:
             chown -R builder:builder /home/builder/.cache/ccache
             chown -R builder:builder /workspace
             
-            echo "=== Step 3: MOCKING Clone, Rename, Configure, and Build ==="
+            echo "=== Step 3: MOCKING Build ==="
             sudo -u builder bash << "EOF"
             set -ex
-            # Instead of cloning and building for 2 hours, we fake the output files
             mkdir -p linux
-            touch linux/linux-btrfs-test.pkg.tar.zst
-            touch linux/linux-btrfs-headers-test.pkg.tar.zst
             
-            # Fake the PKGBUILD so the summary grep doesn'\''t fail
+            # Use echo instead of touch so files aren'\''t 0 bytes (fixes HTTP 400)
+            echo "mock kernel binary data" > linux/linux-btrfs-test.pkg.tar.zst
+            echo "mock kernel headers data" > linux/linux-btrfs-headers-test.pkg.tar.zst
+            
             echo "pkgver=7.0.0" > linux/PKGBUILD
             echo "pkgrel=1" >> linux/PKGBUILD
-            echo "  -> Mock build complete instantly!"
         EOF
-            
-            echo "=== Step 4: Save Version State back to Repo ==="
-            git config --global --add safe.directory "*"
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "github-actions[bot]@users.noreply.github.com"
-            echo "$LATEST_TAG" > .last_release
-            git add .last_release
-            git diff-index --quiet HEAD || git commit -m "Automated TEST: Update tracked kernel tag to $LATEST_TAG"
-            git push
-            
-            echo "=== Step 5: Create GitHub Release and Upload Packages ==="
-            gh release create "$LATEST_TAG" \
-              --title "TEST Kernel Release $LATEST_TAG" \
-              --notes "Testing the fixed release upload pipeline." || true
-            
-            gh release upload "$LATEST_TAG" linux/*.pkg.tar.zst --clobber
-
-            echo "=== Step 6: Log Summary ==="
-            PKGVER=$(grep -E "^pkgver=" linux/PKGBUILD | cut -d= -f2)
-            PKGREL=$(grep -E "^pkgrel=" linux/PKGBUILD | cut -d= -f2)
-            OFFICIAL_VERSION="${PKGVER}-${PKGREL}"
-
-            echo "## 🚀 TEST Build Complete" >> $GITHUB_STEP_SUMMARY
-            echo "- **Official Upstream Version:** \`$OFFICIAL_VERSION\`" >> $GITHUB_STEP_SUMMARY
           '
+
+    - name: Upload Compiled Packages as Workflow Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: arch-linux-btrfs-packages-test
+        path: linux/*.pkg.tar.zst
+        if-no-files-found: error
+
+    - name: Save Version State back to Repo
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        echo "${{ needs.check-version.outputs.latest_tag }}" > .last_release
+        git add .last_release
+        git diff-index --quiet HEAD || git commit -m "Automated TEST: Update tracked kernel tag to ${{ needs.check-version.outputs.latest_tag }}"
+        git push
+
+    - name: Create GitHub Release and Upload Packages
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG_NAME: ${{ needs.check-version.outputs.latest_tag }}
+      run: |
+        echo "=== Create Base Release Entry ==="
+        gh release create "$TAG_NAME" \
+          --title "TEST Kernel Release $TAG_NAME" \
+          --notes "Testing the fixed release upload pipeline with artifacts uploaded first." || true
+        
+        echo "=== Upload Assets to Release ==="
+        gh release upload "$TAG_NAME" linux/*.pkg.tar.zst --clobber
+
+    - name: Log Summary
+      run: |
+        PKGVER=$(grep -E "^pkgver=" linux/PKGBUILD | cut -d= -f2)
+        PKGREL=$(grep -E "^pkgrel=" linux/PKGBUILD | cut -d= -f2)
+        OFFICIAL_VERSION="${PKGVER}-${PKGREL}"
+
+        echo "## 🚀 TEST Build Complete" >> $GITHUB_STEP_SUMMARY
+        echo "- **Official Upstream Version:** \`$OFFICIAL_VERSION\`" >> $GITHUB_STEP_SUMMARY
