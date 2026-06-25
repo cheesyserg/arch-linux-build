@@ -9,14 +9,21 @@ permissions:
   contents: write       # Grants permission to save the version state file and create releases
 
 jobs:
-  check-version:
+  build-kernel:
     runs-on: ubuntu-latest
-    outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
-      latest_tag: ${{ steps.check.outputs.latest_tag }}
+    container:
+      image: archlinux:latest
+
     steps:
-    - name: Checkout Your Repo
+    - name: Bootstrap Git, CLI, and Dependencies inside Container
+      run: |
+        pacman -Syu --noconfirm
+        pacman -S --noconfirm git base-devel devtools pacman-contrib ccache sudo github-cli jq curl
+
+    - name: Checkout Source Code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Check GitHub API for New Upstream Release
       id: check
@@ -39,31 +46,15 @@ jobs:
           echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
         fi
 
-  build-kernel:
-    needs: check-version
-    if: needs.check-version.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest
-
-    steps:
-    - name: Bootstrap Git and CLI inside Container
-      run: |
-        pacman -Syu --noconfirm
-        pacman -S --noconfirm git base-devel devtools pacman-contrib ccache sudo github-cli
-
-    - name: Checkout Source Code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
     - name: Configure Build User
+      if: steps.check.outputs.should_build == 'true'
       run: |
         useradd -m builder
         echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
         chown -R builder:builder "$GITHUB_WORKSPACE"
 
     - name: Setup Cache for ccache
+      if: steps.check.outputs.should_build == 'true'
       uses: actions/cache@v4
       with:
         path: /home/builder/.cache/ccache
@@ -72,6 +63,7 @@ jobs:
           ${{ runner.os }}-kernel-ccache-
 
     - name: Clone, Rename, Configure, and Build Package
+      if: steps.check.outputs.should_build == 'true'
       run: |
         sudo -u builder bash << 'EOF'
         set -ex
@@ -126,29 +118,31 @@ jobs:
         EOF
 
     - name: Save Version State back to Repo
+      if: steps.check.outputs.should_build == 'true'
       run: |
         git config --global --add safe.directory '*'
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        echo "${{ needs.check-version.outputs.latest_tag }}" > .last_release
+        echo "${{ steps.check.outputs.latest_tag }}" > .last_release
         git add .last_release
-        git diff-index --quiet HEAD || git commit -m "Automated: Update tracked kernel tag to ${{ needs.check-version.outputs.latest_tag }}"
+        git diff-index --quiet HEAD || git commit -m "Automated: Update tracked kernel tag to ${{ steps.check.outputs.latest_tag }}"
         git push
 
     - name: Create GitHub Release and Upload Packages
+      if: steps.check.outputs.should_build == 'true'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         git config --global --add safe.directory '*'
-        TAG_NAME="${{ needs.check-version.outputs.latest_tag }}"
+        TAG_NAME="${{ steps.check.outputs.latest_tag }}"
         
-        # Generates a release. --clobber overwrites assets cleanly if you re-run manually.
         gh release create "$TAG_NAME" linux/*.pkg.tar.zst \
           --title "Kernel Release $TAG_NAME" \
           --notes "Automated optimized custom build of the Arch Linux kernel package flavor \`linux-btrfs\`." \
           --clobber
 
     - name: Log and Display Finished Kernel Version
+      if: steps.check.outputs.should_build == 'true'
       run: |
         PKGVER=$(grep -E '^pkgver=' linux/PKGBUILD | cut -d= -f2)
         PKGREL=$(grep -E '^pkgrel=' linux/PKGBUILD | cut -d= -f2)
